@@ -1,32 +1,36 @@
-FROM python:3.11-bookworm
+FROM python:3.10-slim
 
-ARG USERNAME=voicefixer
-ARG USER_UID=1000
-ARG USER_GID=1000
-ARG WORKDIR_PATH=/opt/voicefixer
-ENV PYTHONUNBUFFERED=1
+WORKDIR /app
 
-RUN pip install numpy==1.26.1 librosa==0.10.1 pytz progressbar mpmath zipp watchdog validators tzlocal \
-    tzdata tornado toolz toml tenacity sympy smmap six rpds-py pyyaml pyparsing pygments pyarrow protobuf \
-    pillow nvidia-nvtx-cu12 nvidia-nvjitlink-cu12 nvidia-nccl-cu12 nvidia-curand-cu12 nvidia-cufft-cu12 \
-    nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12 nvidia-cuda-cupti-cu12 nvidia-cublas-cu12 networkx mdurl \
-    MarkupSafe kiwisolver fsspec fonttools filelock cycler contourpy click cachetools blinker attrs triton \
-    referencing python-dateutil nvidia-cusparse-cu12 nvidia-cudnn-cu12 markdown-it-py jinja2 importlib-metadata \
-    gitdb rich pydeck pandas nvidia-cusolver-cu12 matplotlib jsonschema-specifications GitPython torchlibrosa \
-    torch jsonschema altair streamlit
+# Install system dependencies including FFmpeg and build essentials
+RUN apt-get update && \
+    apt-get install -y \
+    ffmpeg \
+    build-essential \
+    python3-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p ${WORKDIR_PATH}
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
 
-ADD . $WORKDIR_PATH
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m -d ${WORKDIR_PATH} $USERNAME \
-    && chown -R $USERNAME:$USERNAME ${WORKDIR_PATH}
+# Upgrade pip and install setuptools first
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-WORKDIR ${WORKDIR_PATH}
-USER $USERNAME
-ENV PATH="${PATH}:${WORKDIR_PATH}/.local/bin"
+# Install numpy first
+RUN pip install --no-cache-dir numpy==1.24.3
 
-RUN pip install .
-RUN voicefixer --weight_prepare
+# Install PyTorch with CPU support
+RUN pip install --no-cache-dir torch==2.2.1+cpu torchaudio==2.2.1+cpu -f https://download.pytorch.org/whl/torch_stable.html
 
-ENTRYPOINT ["voicefixer"]
+# Then install the rest of the requirements
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the app
+COPY . .
+
+# Expose port 8501
+EXPOSE 8501
+
+# Run the app
+CMD ["streamlit", "run", "test/streamlit.py", "--server.address", "0.0.0.0"]
